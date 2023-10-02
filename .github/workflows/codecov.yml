@@ -1,20 +1,16 @@
-name: Testing
+name: Test and coverage
 
-# Trigger on pushes, PRs (excluding documentation changes), and nightly.
-on:
-  push:
-  pull_request:
-
-permissions:
-  contents: read
-
-# Always force the use of Go modules
-env:
-  GO111MODULE: on
+on: [push, pull_request]
 
 jobs:
-    coverage:
+    build:
         runs-on: ubuntu-latest
         steps:
-        - name: Codecov
+        - uses: actions/checkout@v4
+        - uses: actions/setup-go@v4
+          with:
+            go-version: 'stable'
+        - name: Run coverage
+          run: go test -race -coverprofile=coverage.txt -covermode=atomic
+        - name: Upload coverage to Codecov
           uses: codecov/codecov-action@v4.0.0-beta.3
