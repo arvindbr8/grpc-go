@@ -55,6 +55,12 @@ func (cse *ConnectivityStateEvaluator) RecordTransition(oldState, newState conne
 			cse.numIdle += updateVal
 		}
 	}
+	print("heellloooo")
+	print("heellloooo")
+	print("heellloooo")
+	print("heellloooo")
+	print("heellloooo")
+	print("heellloooo")
 	return cse.CurrentState()
 }
 
