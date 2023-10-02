@@ -13,7 +13,7 @@ env:
   GO111MODULE: on
 
 jobs:
-    tests:
+    coverage:
         runs-on: ubuntu-latest
         steps:
         - name: Codecov
