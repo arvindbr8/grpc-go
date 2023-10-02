@@ -1,0 +1,20 @@
+name: Testing
+
+# Trigger on pushes, PRs (excluding documentation changes), and nightly.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Always force the use of Go modules
+env:
+  GO111MODULE: on
+
+jobs:
+    tests:
+        runs-on: ubuntu-latest
+        steps:
+        - name: Codecov
+          uses: codecov/codecov-action@v4.0.0-beta.3
