@@ -11,6 +11,6 @@ jobs:
           with:
             go-version: 'stable'
         - name: Run coverage
-          run: go test -race -coverprofile=coverage.txt -covermode=atomic
+          run: go test -coverprofile=coverage.txt -covermode=atomic
         - name: Upload coverage to Codecov
-          uses: codecov/codecov-action@v4.0.0-beta.3
+          uses: codecov/codecov-action@v3
