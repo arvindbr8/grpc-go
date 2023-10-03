@@ -7,3 +7,4 @@ coverage:
       default:
         target: auto
         threshold: 1
+comment: no

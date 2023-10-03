@@ -163,13 +163,6 @@ func decodeGRPCStatusDetails(rawDetails string) (*status.Status, error) {
 	if err = proto.Unmarshal(v, st); err != nil {
 		return nil, err
 	}
-	print("hello")
-	print("hello")
-	print("hello")
-	print("hello")
-	print("hello")
-	print("hello")
-	print("hello")
 	return status.FromProto(st), nil
 }
 
