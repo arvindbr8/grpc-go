@@ -12,7 +12,7 @@ jobs:
             go-version: 'stable'
         - name: Run coverage
           run: |
-            go test -coverprofile=cov_grpc.txt google.golang.org/grpc/...
+            go test -coverprofile=coverage.out google.golang.org/grpc/...
             # cd "${GITHUB_WORKSPACE}"
             # for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
             #   pushd "$(dirname ${MOD_FILE})"
