@@ -14,6 +14,8 @@ jobs:
           run: |
             mkdir coverage
             go test -coverprofile=./coverage/cov.out google.golang.org/grpc/...
+            ls coverage
+            pwd
             for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
               echo ${GITHUB_WORKSPACE}
               go test -coverprofile=./coverage/cov_$(basename ${MOD_FILE}).out $(dirname ${MOD_FILE})/...
