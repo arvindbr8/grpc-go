@@ -13,7 +13,6 @@ jobs:
         - name: Run coverage
           run: |
             go test -coverprofile=cov_grpc.txt google.golang.org/grpc/...
-            cd "${GITHUB_WORKSPACE}"
             for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
               pushd "$(dirname ${MOD_FILE})"
               go test -coverprofile=cov_${MOD_FILE}.txt ./...
