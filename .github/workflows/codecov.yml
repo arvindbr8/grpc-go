@@ -16,7 +16,7 @@ jobs:
             cd "${GITHUB_WORKSPACE}"
             for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
               pushd "$(dirname ${MOD_FILE})"
-              go test -coverprofile=cov_$(basename ${MOD_FILE}).txt ./...
+              go test -coverprofile=${GITHUB_WORKSPACE}/cov_$(basename ${MOD_FILE}).txt ./...
               popd
             done
         - name: Upload coverage to Codecov
