@@ -19,27 +19,15 @@ jobs:
               fi
             }
             echo "mode: set" > coverage.out
+            export GITHUB_WORKFLOW=$PWD
             go test -coverprofile=cov.out google.golang.org/grpc/...
             append_coverage coverage.out cov.out
             for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
               pushd "$(dirname ${MOD_FILE})"
               go test -coverprofile=cov.out ./...
-              append_coverage coverage.out cov.out
+              append_coverage ${GITHUB_WORKFLOW}/coverage.out cov.out
+              rm cov.out
               popd
             done
-            # echo "mode: set" > coverage.out
-            # for Dir in $(find ./* -maxdepth 10 -type d );
-            # do
-            #         if ls $Dir/*.go &> /dev/null;
-            #         then
-            #             go test -coverprofile=profile.out $Dir
-            #             if [ -f profile.out ]
-            #             then
-            #                 cat profile.out | grep -v "mode: set" >> acc.out
-            #             fi
-            # fi
-            # done
         - name: Upload coverage to Codecov
           uses: codecov/codecov-action@v3
-          with:
-            directory: ./coverage/
