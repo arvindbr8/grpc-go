@@ -1,33 +1,23 @@
-name: Test and coverage
-
+name: Codecov
 on: [push, pull_request]
-
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
-        - uses: actions/checkout@v4
-        - uses: actions/setup-go@v4
-          with:
-            go-version: 'stable'
-        - name: Run coverage
-          run: |
-            append_coverage () {
-              if [ -f $2 ]
-              then
-                cat $2 | grep -v "mode: set" >> $1
-              fi
-            }
-            echo "mode: set" > coverage.out
-            export GITHUB_WORKFLOW=$PWD
-            go test -coverprofile=cov.out google.golang.org/grpc/...
-            append_coverage coverage.out cov.out
-            for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
-              pushd "$(dirname ${MOD_FILE})"
-              go test -coverprofile=cov.out ./...
-              append_coverage ${GITHUB_WORKFLOW}/coverage.out cov.out
-              rm cov.out
-              popd
-            done
-        - name: Upload coverage to Codecov
-          uses: codecov/codecov-action@v3
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: 'stable'
+    - name: Run coverage
+      run: |
+        echo "mode: set" > coverage.out
+        go test -coverprofile=cov.out google.golang.org/grpc/...
+        [ -f cov.out ] && sed '1d' cov.out >> coverage.out
+        for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
+          pushd "$(dirname ${MOD_FILE})"
+          go test -coverprofile=cov.out ./...
+          [ -f cov.out ] && sed '1d' cov.out >> ${GITHUB_WORKFLOW}/coverage.out
+          popd
+        done
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
