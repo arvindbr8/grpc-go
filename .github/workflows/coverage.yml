@@ -15,11 +15,11 @@ jobs:
         append_coverage() {
           [ -f $1 ] && (sed '1d' $1 >> ${GITHUB_WORKSPACE}/coverage.out)
         }
-        go test -coverprofile=cov.out -covermode=set google.golang.org/grpc/...
+        go test -coverprofile=cov.out -covermode=set -coverpkg=./... google.golang.org/grpc/...
         append_coverage cov.out
         for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
           pushd "$(dirname ${MOD_FILE})"
-          go test -coverprofile=cov.out -covermode=set ./...
+          go test -coverprofile=cov.out -covermode=set -coverpkg=./... ./...
           append_coverage cov.out
           popd
         done
