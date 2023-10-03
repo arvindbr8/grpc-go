@@ -14,14 +14,11 @@ jobs:
           run: |
             mkdir coverage
             go test -coverprofile=./coverage/cov.out google.golang.org/grpc/...
-            ls coverage
-            pwd
             for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
-              echo ${GITHUB_WORKSPACE}
-              go test -coverprofile=./coverage/cov_$(basename ${MOD_FILE}).out $(dirname ${MOD_FILE})/...
-              # pushd "$(dirname ${MOD_FILE})"
-              # go test -coverprofile=./coverage/cov_$(basename ${MOD_FILE}).out ./...
-              # popd
+              echo 
+              pushd "$(dirname ${MOD_FILE})"
+              go test -coverprofile=${GITHUB_WORKSPACE}/coverage/cov_$(basename ${MOD_FILE}).out ./...
+              popd
             done
             # echo "mode: set" > coverage.out
             # for Dir in $(find ./* -maxdepth 10 -type d );
