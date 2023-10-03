@@ -12,11 +12,11 @@ jobs:
       run: |
         echo "mode: set" > coverage.out
         go test -coverprofile=cov.out google.golang.org/grpc/...
-        [ -f cov.out ] && sed '1d' cov.out >> coverage.out
+        [ -f cov.out ] && (sed '1d' cov.out >> coverage.out)
         for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
           pushd "$(dirname ${MOD_FILE})"
           go test -coverprofile=cov.out ./...
-          [ -f cov.out ] && sed '1d' cov.out >> ${GITHUB_WORKFLOW}/coverage.out
+          [ -f cov.out ] && (sed '1d' cov.out >> ${GITHUB_WORKSPACE}/coverage.out)
           popd
         done
     - name: Upload coverage to Codecov
