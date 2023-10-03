@@ -12,12 +12,26 @@ jobs:
             go-version: 'stable'
         - name: Run coverage
           run: |
-            go test -coverprofile=cov.out google.golang.org/grpc/...
-            # cd "${GITHUB_WORKSPACE}"
-            # for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
-            #   pushd "$(dirname ${MOD_FILE})"
-            #   go test -coverprofile=${GITHUB_WORKSPACE}/cov_$(basename ${MOD_FILE}).out ./...
-            #   popd
+            mkdir coverage
+            go test -coverprofile=./coverage/cov.out google.golang.org/grpc/...
+            for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
+              pushd "$(dirname ${MOD_FILE})"
+              go test -coverprofile=./coverage/cov_$(basename ${MOD_FILE}).out ./...
+              popd
+            done
+            # echo "mode: set" > coverage.out
+            # for Dir in $(find ./* -maxdepth 10 -type d );
+            # do
+            #         if ls $Dir/*.go &> /dev/null;
+            #         then
+            #             go test -coverprofile=profile.out $Dir
+            #             if [ -f profile.out ]
+            #             then
+            #                 cat profile.out | grep -v "mode: set" >> acc.out
+            #             fi
+            # fi
             # done
         - name: Upload coverage to Codecov
           uses: codecov/codecov-action@v3
+          with:
+            directory: ./coverage/
