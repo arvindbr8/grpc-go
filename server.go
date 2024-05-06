@@ -1434,8 +1434,8 @@ func (s *Server) processUnaryRPC(ctx context.Context, t transport.ServerTranspor
 			}
 		} else {
 			switch st := err.(type) {
-			case transport.ConnectionError:
-				// Nothing to do here.
+			// case transport.ConnectionError:
+			// Nothing to do here.
 			default:
 				panic(fmt.Sprintf("grpc: Unexpected error (%T) from sendResponse: %v", st, st))
 			}

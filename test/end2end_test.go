@@ -888,7 +888,7 @@ type lazyConn struct {
 
 // possible conn closed errors.
 const possibleConnResetMsg = "connection reset by peer"
-const possibleEOFMsg = "error reading from server: EOF"
+const possibleEOFMsg = "reading from server: EOF"
 
 // isConnClosedErr checks the error msg for possible conn closed messages. There
 // is a raceyness in the timing of when TCP packets are sent from client to
@@ -1153,7 +1153,7 @@ func (s) TestGetMethodConfig(t *testing.T) {
 	// The following RPCs are expected to become non-fail-fast ones with 1ms deadline.
 	var err error
 	if _, err = tc.EmptyCall(ctx, &testpb.Empty{}); status.Code(err) != codes.DeadlineExceeded {
-		t.Fatalf("TestService/EmptyCall(_, _) = _, %v, want _, %s", err, codes.DeadlineExceeded)
+		t.Fatalf("TestService/EmptyCall(_, _) = _, %v, want: _, %s", status.Code(err), codes.DeadlineExceeded)
 	}
 
 	r.UpdateState(resolver.State{Addresses: addrs, ServiceConfig: parseServiceConfig(t, r, `{

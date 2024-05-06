@@ -217,9 +217,9 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 	conn, err := dial(connectCtx, opts.Dialer, addr, opts.UseProxy, opts.UserAgent)
 	if err != nil {
 		if opts.FailOnNonTempDialError {
-			return nil, connectionErrorf(isTemporary(err), err, "transport: error while dialing: %v", err)
+			return nil, connectionErrorf(isTemporary(err), err, "Dial(%s) failed: %v", addr.Addr, err)
 		}
-		return nil, connectionErrorf(true, err, "transport: Error while dialing: %v", err)
+		return nil, connectionErrorf(true, err, "Dial(%s) failed: %v", addr.Addr, err)
 	}
 
 	// Any further errors will close the underlying connection
@@ -264,7 +264,7 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 	keepaliveEnabled := false
 	if kp.Time != infinity {
 		if err = isyscall.SetTCPUserTimeout(conn, kp.Timeout); err != nil {
-			return nil, connectionErrorf(false, err, "transport: failed to set TCP_USER_TIMEOUT: %v", err)
+			return nil, connectionErrorf(false, err, "setting TCP_USER_TIMEOUT for %s: %v", conn.RemoteAddr(), err)
 		}
 		keepaliveEnabled = true
 	}
@@ -286,7 +286,7 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 	if transportCreds != nil {
 		conn, authInfo, err = transportCreds.ClientHandshake(connectCtx, addr.ServerName, conn)
 		if err != nil {
-			return nil, connectionErrorf(isTemporary(err), err, "transport: authentication handshake failed for %s: %v", addr.ServerName, err)
+			return nil, connectionErrorf(isTemporary(err), err, "ClientHandshake(%s) failed: %v", addr.Addr, err)
 		}
 		for _, cd := range perRPCCreds {
 			if cd.RequireTransportSecurity() {
@@ -295,7 +295,7 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 				}); ok {
 					secLevel := ci.GetCommonAuthInfo().SecurityLevel
 					if secLevel != credentials.InvalidSecurityLevel && secLevel < credentials.PrivacyAndIntegrity {
-						return nil, connectionErrorf(true, nil, "transport: cannot send secure credentials on an insecure connection")
+						return nil, connectionErrorf(true, nil, "cannot send secure credentials on an insecure connection")
 					}
 				}
 			}
@@ -419,12 +419,10 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 	// Send connection preface to server.
 	n, err := t.conn.Write(clientPreface)
 	if err != nil {
-		err = connectionErrorf(true, err, "transport: failed to write client preface: %v", err)
-		return nil, err
+		return nil, t.connectionErrorf(true, err, "writing client preface: %v", err)
 	}
 	if n != len(clientPreface) {
-		err = connectionErrorf(true, nil, "transport: preface mismatch, wrote %d bytes; want %d", n, len(clientPreface))
-		return nil, err
+		return nil, t.connectionErrorf(true, nil, "preface mismatch, wrote %d bytes; want %d", n, len(clientPreface))
 	}
 	var ss []http2.Setting
 
@@ -442,14 +440,12 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 	}
 	err = t.framer.fr.WriteSettings(ss...)
 	if err != nil {
-		err = connectionErrorf(true, err, "transport: failed to write initial settings frame: %v", err)
-		return nil, err
+		return nil, t.connectionErrorf(true, err, "writing initial settings frame: %v", err)
 	}
 	// Adjust the connection flow control window if needed.
 	if delta := uint32(icwz - defaultWindowSize); delta > 0 {
 		if err := t.framer.fr.WriteWindowUpdate(0, delta); err != nil {
-			err = connectionErrorf(true, err, "transport: failed to write window update: %v", err)
-			return nil, err
+			return nil, t.connectionErrorf(true, err, "writing window update: %v", err)
 		}
 	}
 
@@ -511,6 +507,15 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 		},
 	}
 	return s
+}
+
+func (t *http2Client) connectionErrorf(temp bool, e error, format string, args ...any) connectionError {
+	return connectionError{
+		remoteAddr: t.address.Addr,
+		desc:       fmt.Sprintf(format, args...),
+		temp:       temp,
+		err:        e,
+	}
 }
 
 func (t *http2Client) getPeer() *peer.Peer {
@@ -1057,7 +1062,7 @@ func (t *http2Client) GracefulClose() {
 	active := len(t.activeStreams)
 	t.mu.Unlock()
 	if active == 0 {
-		t.Close(connectionErrorf(true, nil, "no active streams left to process while draining"))
+		t.Close(t.connectionErrorf(true, nil, "no active streams left to process while draining"))
 		return
 	}
 	t.controlBuf.put(&incomingGoAway{})
@@ -1307,7 +1312,7 @@ func (t *http2Client) handleGoAway(f *http2.GoAwayFrame) {
 	id := f.LastStreamID
 	if id > 0 && id%2 == 0 {
 		t.mu.Unlock()
-		t.Close(connectionErrorf(true, nil, "received goaway with non-zero even-numbered numbered stream id: %v", id))
+		t.Close(t.connectionErrorf(true, nil, "received goaway with non-zero even-numbered numbered stream id: %v", id))
 		return
 	}
 	// A client can receive multiple GoAways from the server (see
@@ -1325,7 +1330,7 @@ func (t *http2Client) handleGoAway(f *http2.GoAwayFrame) {
 		// If there are multiple GoAways the first one should always have an ID greater than the following ones.
 		if id > t.prevGoAwayID {
 			t.mu.Unlock()
-			t.Close(connectionErrorf(true, nil, "received goaway with stream id: %v, which exceeds stream id of previous goaway: %v", id, t.prevGoAwayID))
+			t.Close(t.connectionErrorf(true, nil, "received goaway with stream id: %v, which exceeds stream id of previous goaway: %v", id, t.prevGoAwayID))
 			return
 		}
 	default:
@@ -1350,7 +1355,7 @@ func (t *http2Client) handleGoAway(f *http2.GoAwayFrame) {
 	t.prevGoAwayID = id
 	if len(t.activeStreams) == 0 {
 		t.mu.Unlock()
-		t.Close(connectionErrorf(true, nil, "received goaway and there are no active streams"))
+		t.Close(t.connectionErrorf(true, nil, "received goaway and there are no active streams"))
 		return
 	}
 
@@ -1589,11 +1594,11 @@ func (t *http2Client) operateHeaders(frame *http2.MetaHeadersFrame) {
 func (t *http2Client) readServerPreface() error {
 	frame, err := t.framer.fr.ReadFrame()
 	if err != nil {
-		return connectionErrorf(true, err, "error reading server preface: %v", err)
+		return t.connectionErrorf(true, err, "reading server preface: %v", err)
 	}
 	sf, ok := frame.(*http2.SettingsFrame)
 	if !ok {
-		return connectionErrorf(true, nil, "initial http2 frame from server is not a settings frame: %T", frame)
+		return t.connectionErrorf(true, nil, "initial http2 frame from server is not a settings frame: %T", frame)
 	}
 	t.handleSettings(sf, true)
 	return nil
@@ -1644,7 +1649,7 @@ func (t *http2Client) reader(errCh chan<- error) {
 				continue
 			} else {
 				// Transport error.
-				t.Close(connectionErrorf(true, err, "error reading from server: %v", err))
+				t.Close(t.connectionErrorf(true, err, "reading from server: %v", err))
 				return
 			}
 		}
@@ -1703,7 +1708,7 @@ func (t *http2Client) keepalive() {
 				continue
 			}
 			if outstandingPing && timeoutLeft <= 0 {
-				t.Close(connectionErrorf(true, nil, "keepalive ping failed to receive ACK within timeout"))
+				t.Close(t.connectionErrorf(true, nil, "keepalive ping failed to receive ACK within timeout"))
 				return
 			}
 			t.mu.Lock()

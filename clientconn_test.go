@@ -39,7 +39,6 @@ import (
 	internalbackoff "google.golang.org/grpc/internal/backoff"
 	"google.golang.org/grpc/internal/grpcsync"
 	"google.golang.org/grpc/internal/grpctest"
-	"google.golang.org/grpc/internal/transport"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
@@ -523,8 +522,8 @@ func (s) TestDialContextFailFast(t *testing.T) {
 	}
 
 	_, err := DialContext(ctx, "Non-Existent.Server:80", WithBlock(), WithTransportCredentials(insecure.NewCredentials()), WithDialer(dialer), FailOnNonTempDialError(true))
-	if terr, ok := err.(transport.ConnectionError); !ok || terr.Origin() != failErr {
-		t.Fatalf("DialContext() = _, %v, want _, %v", err, failErr)
+	if !strings.Contains(err.Error(), "failfast") {
+		t.Fatalf("DialContext(_, _) = _, %v, want _, %v", err, failErr)
 	}
 }
 

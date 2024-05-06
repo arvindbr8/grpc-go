@@ -370,7 +370,7 @@ func testControlChannelCredsFailure(t *testing.T, sopts []grpc.ServerOption, bop
 	errCh := make(chan error)
 	ctrlCh.lookup(nil, rlspb.RouteLookupRequest_REASON_MISS, staleHeaderData, func(_ []string, _ string, err error) {
 		if st, ok := status.FromError(err); !ok || st.Code() != wantCode || !wantErrRegex.MatchString(st.String()) {
-			errCh <- fmt.Errorf("rlsClient.lookup() returned error: %v, wantCode: %v, wantErr: %s", err, wantCode, wantErrRegex.String())
+			errCh <- fmt.Errorf("rlsClient.lookup() does not match expected; gotCode: %v, wantCode: %v; gotErr:%s, wantErr: %s", st.Code(), wantCode, st.String(), wantErrRegex.String())
 			return
 		}
 		errCh <- nil
@@ -407,7 +407,7 @@ func (s) TestControlChannelCredsFailure(t *testing.T) {
 				Authority: "authority-mismatch",
 			},
 			wantCode:     codes.Unavailable,
-			wantErrRegex: regexp.MustCompile(`transport: authentication handshake failed: .* \*\.test\.example\.com.*authority-mismatch`),
+			wantErrRegex: regexp.MustCompile(`ClientHandshake(.*) failed: .* \*\.test\.example\.com.*authority-mismatch`),
 		},
 		{
 			name:  "transport creds handshake failure",
@@ -417,7 +417,7 @@ func (s) TestControlChannelCredsFailure(t *testing.T) {
 				Authority: "x.test.example.com",
 			},
 			wantCode:     codes.Unavailable,
-			wantErrRegex: regexp.MustCompile("transport: authentication handshake failed: .*"),
+			wantErrRegex: regexp.MustCompile(`ClientHandshake(.*) failed: .*`),
 		},
 		{
 			name: "call creds mismatch",

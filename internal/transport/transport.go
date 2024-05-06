@@ -750,44 +750,42 @@ type ServerTransport interface {
 }
 
 // connectionErrorf creates an ConnectionError with the specified error description.
-func connectionErrorf(temp bool, e error, format string, a ...any) ConnectionError {
-	return ConnectionError{
-		Desc: fmt.Sprintf(format, a...),
+func connectionErrorf(temp bool, e error, format string, a ...any) connectionError {
+	return connectionError{
+		desc: fmt.Sprintf(format, a...),
 		temp: temp,
 		err:  e,
 	}
 }
 
-// ConnectionError is an error that results in the termination of the
+// connectionError is an error that results in the termination of the
 // entire connection and the retry of all the active streams.
-type ConnectionError struct {
-	Desc string
-	temp bool
-	err  error
+type connectionError struct {
+	remoteAddr string
+	desc       string
+	temp       bool
+	err        error
 }
 
-func (e ConnectionError) Error() string {
-	return fmt.Sprintf("connection error: desc = %q", e.Desc)
+func (e connectionError) Error() string {
+	if e.remoteAddr != "" {
+		return fmt.Sprintf("connection to %s: %q", e.remoteAddr, e.desc)
+	}
+	return fmt.Sprintf(e.desc)
 }
 
 // Temporary indicates if this connection error is temporary or fatal.
-func (e ConnectionError) Temporary() bool {
+func (e connectionError) Temporary() bool {
 	return e.temp
 }
 
-// Origin returns the original error of this connection error.
-func (e ConnectionError) Origin() error {
-	// Never return nil error here.
-	// If the original error is nil, return itself.
-	if e.err == nil {
-		return e
-	}
-	return e.err
+func (e connectionError) GRPCStatus() *status.Status {
+	return status.New(codes.Unavailable, e.desc)
 }
 
 // Unwrap returns the original error of this connection error or nil when the
 // origin is nil.
-func (e ConnectionError) Unwrap() error {
+func (e connectionError) Unwrap() error {
 	return e.err
 }
 

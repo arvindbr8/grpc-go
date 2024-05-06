@@ -917,15 +917,12 @@ func toRPCErr(err error) error {
 		return status.Error(codes.Internal, err.Error())
 	}
 
-	switch e := err.(type) {
-	case transport.ConnectionError:
-		return status.Error(codes.Unavailable, e.Desc)
-	case *transport.NewStreamError:
-		return toRPCErr(e.Err)
-	}
-
 	if _, ok := status.FromError(err); ok {
 		return err
+	}
+
+	if terr, ok := err.(*transport.NewStreamError); ok {
+		return toRPCErr(terr.Err)
 	}
 
 	return status.Error(codes.Unknown, err.Error())

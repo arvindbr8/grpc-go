@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
+	"regexp"
 	"testing"
 	"time"
 
@@ -113,9 +113,9 @@ func (s) TestTLS_MinVersion12(t *testing.T) {
 
 	client := testgrpc.NewTestServiceClient(cc)
 
-	const wantStr = "authentication handshake failed"
-	if _, err = client.EmptyCall(ctx, &testpb.Empty{}); status.Code(err) != codes.Unavailable || !strings.Contains(status.Convert(err).Message(), wantStr) {
-		t.Fatalf("EmptyCall err = %v; want code=%v, message contains %q", err, codes.Unavailable, wantStr)
+	wantStr := regexp.MustCompile(`ClientHandshake(.*) failed: remote error: tls: protocol version not supported`)
+	if _, err = client.EmptyCall(ctx, &testpb.Empty{}); status.Code(err) != codes.Unavailable || !wantStr.MatchString(status.Convert(err).Message()) {
+		t.Fatalf("Unexpected err calling EmptyCall; \n\tgot code=%v; want code=%v \n\tgot message=%q, want message matching regex=%q", status.Code(err), codes.Unavailable, status.Convert(err).Message(), wantStr.String())
 	}
 }
 
@@ -199,9 +199,9 @@ func (s) TestTLS_CipherSuites(t *testing.T) {
 
 	client := testgrpc.NewTestServiceClient(cc)
 
-	const wantStr = "authentication handshake failed"
-	if _, err = client.EmptyCall(ctx, &testpb.Empty{}); status.Code(err) != codes.Unavailable || !strings.Contains(status.Convert(err).Message(), wantStr) {
-		t.Fatalf("EmptyCall err = %v; want code=%v, message contains %q", err, codes.Unavailable, wantStr)
+	wantStr := regexp.MustCompile(`ClientHandshake(.*) failed: remote error: tls: handshake failure`)
+	if _, err = client.EmptyCall(ctx, &testpb.Empty{}); status.Code(err) != codes.Unavailable || !wantStr.MatchString(status.Convert(err).Message()) {
+		t.Fatalf("Unexpected err calling EmptyCall; got code=%v, want code=%v; got message=%q want message matching regex=%q", status.Code(err), codes.Unavailable, status.Convert(err).Message(), wantStr.String())
 	}
 }
 

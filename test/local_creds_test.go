@@ -212,7 +212,7 @@ func isExpected(got, want error) bool {
 func (s) TestLocalCredsClientFail(t *testing.T) {
 	// Use local creds at client-side which should lead to client-side failure.
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(local.NewCredentials())}
-	want := status.Error(codes.Unavailable, "transport: authentication handshake failed: local credentials rejected connection to non-local address")
+	want := status.Error(codes.Unavailable, "local credentials rejected connection to non-local address")
 	if err := testLocalCredsE2EFail(opts); !isExpected(err, want) {
 		t.Fatalf("testLocalCredsE2EFail() = %v; want %v", err, want)
 	}

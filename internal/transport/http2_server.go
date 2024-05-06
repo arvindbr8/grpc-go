@@ -202,12 +202,12 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 		})
 	}
 	if err := framer.fr.WriteSettings(isettings...); err != nil {
-		return nil, connectionErrorf(false, err, "transport: %v", err)
+		return nil, connectionErrorf(false, err, "writing SETTINGS frame: %q", err)
 	}
 	// Adjust the connection flow control window if needed.
 	if delta := uint32(icwz - defaultWindowSize); delta > 0 {
 		if err := framer.fr.WriteWindowUpdate(0, delta); err != nil {
-			return nil, connectionErrorf(false, err, "transport: %v", err)
+			return nil, connectionErrorf(false, err, "writing WINDOW_UPDATE frame: %q", err)
 		}
 	}
 	kp := config.KeepaliveParams
@@ -309,10 +309,10 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 		if err == io.EOF {
 			return nil, io.EOF
 		}
-		return nil, connectionErrorf(false, err, "transport: http2Server.HandleStreams failed to receive the preface from client: %v", err)
+		return nil, t.connectionErrorf(false, err, "http2Server.HandleStreams failed to receive the preface from client: %q", err)
 	}
 	if !bytes.Equal(preface, clientPreface) {
-		return nil, connectionErrorf(false, nil, "transport: http2Server.HandleStreams received bogus greeting from client: %q", preface)
+		return nil, t.connectionErrorf(false, nil, "http2Server.HandleStreams received bogus greeting from client: %q", preface)
 	}
 
 	frame, err := t.framer.fr.ReadFrame()
@@ -320,12 +320,12 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 		return nil, err
 	}
 	if err != nil {
-		return nil, connectionErrorf(false, err, "transport: http2Server.HandleStreams failed to read initial settings frame: %v", err)
+		return nil, t.connectionErrorf(false, err, "http2Server.HandleStreams failed to read initial settings frame: %q", err)
 	}
 	atomic.StoreInt64(&t.lastRead, time.Now().UnixNano())
 	sf, ok := frame.(*http2.SettingsFrame)
 	if !ok {
-		return nil, connectionErrorf(false, nil, "transport: http2Server.HandleStreams saw invalid preface type %T from client", frame)
+		return nil, t.connectionErrorf(false, nil, "http2Server.HandleStreams saw invalid preface type %T from client", frame)
 	}
 	t.handleSettings(sf)
 
@@ -354,6 +354,15 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 	}()
 	go t.keepalive()
 	return t, nil
+}
+
+func (t *http2Server) connectionErrorf(temp bool, e error, format string, args ...any) connectionError {
+	return connectionError{
+		remoteAddr: t.conn.RemoteAddr().String(),
+		desc:       fmt.Sprintf(format, args...),
+		temp:       temp,
+		err:        e,
+	}
 }
 
 // operateHeaders takes action on the decoded headers. Returns an error if fatal
@@ -990,8 +999,8 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 	}
 	if err := t.writeHeaderLocked(s); err != nil {
 		switch e := err.(type) {
-		case ConnectionError:
-			return status.Error(codes.Unavailable, e.Desc)
+		case connectionError:
+			return status.Error(codes.Unavailable, e.desc)
 		default:
 			return status.Convert(err).Err()
 		}
