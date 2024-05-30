@@ -752,7 +752,7 @@ type ServerTransport interface {
 // connectionErrorf creates an ConnectionError with the specified error description.
 func connectionErrorf(temp bool, e error, format string, a ...any) connectionError {
 	return connectionError{
-		desc: fmt.Sprintf(format, a...),
+		Desc: fmt.Sprintf(format, a...),
 		temp: temp,
 		err:  e,
 	}
@@ -762,16 +762,16 @@ func connectionErrorf(temp bool, e error, format string, a ...any) connectionErr
 // entire connection and the retry of all the active streams.
 type connectionError struct {
 	remoteAddr string
-	desc       string
+	Desc       string
 	temp       bool
 	err        error
 }
 
 func (e connectionError) Error() string {
 	if e.remoteAddr != "" {
-		return fmt.Sprintf("connection to %s: %q", e.remoteAddr, e.desc)
+		return fmt.Sprintf("connection to %s: %q", e.remoteAddr, e.Desc)
 	}
-	return fmt.Sprintf(e.desc)
+	return fmt.Sprintf(e.Desc)
 }
 
 // Temporary indicates if this connection error is temporary or fatal.
@@ -780,7 +780,10 @@ func (e connectionError) Temporary() bool {
 }
 
 func (e connectionError) GRPCStatus() *status.Status {
-	return status.New(codes.Unavailable, e.desc)
+	if e.temp {
+		return nil
+	}
+	return status.New(codes.Unavailable, e.Desc)
 }
 
 // Unwrap returns the original error of this connection error or nil when the

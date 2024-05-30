@@ -181,13 +181,15 @@ func (s) TestToRPCErr(t *testing.T) {
 		{transport.ErrConnClosing, status.Error(codes.Unavailable, "transport is closing")},
 		{io.ErrUnexpectedEOF, status.Error(codes.Internal, io.ErrUnexpectedEOF.Error())},
 	} {
-		err := toRPCErr(test.errIn)
-		if _, ok := status.FromError(err); !ok {
-			t.Errorf("toRPCErr{%v} returned type %T, want %T", test.errIn, err, status.Error)
-		}
-		if !testutils.StatusErrEqual(err, test.errOut) {
-			t.Errorf("toRPCErr{%v} = %v \nwant %v", test.errIn, err, test.errOut)
-		}
+		t.Run(test.errIn.Error(), func(t *testing.T) {
+			err := toRPCErr(test.errIn)
+			if _, ok := status.FromError(err); !ok {
+				t.Errorf("toRPCErr{%v} returned type %T, want %T", test.errIn, err, status.Error)
+			}
+			if !testutils.StatusErrEqual(err, test.errOut) {
+				t.Errorf("toRPCErr{%v} = %v \nwant %v", test.errIn, err, test.errOut)
+			}
+		})
 	}
 }
 

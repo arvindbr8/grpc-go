@@ -40,6 +40,7 @@ import (
 	"google.golang.org/grpc/internal/channelz"
 	icredentials "google.golang.org/grpc/internal/credentials"
 	"google.golang.org/grpc/internal/grpclog"
+	internalgrpclog "google.golang.org/grpc/internal/grpclog"
 	"google.golang.org/grpc/internal/grpcsync"
 	"google.golang.org/grpc/internal/grpcutil"
 	imetadata "google.golang.org/grpc/internal/metadata"
@@ -272,10 +273,13 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 		isSecure bool
 		authInfo credentials.AuthInfo
 	)
+	logger := internalgrpclog.NewPrefixLogger(logger, fmt.Sprintf("[client-transport] "))
+	logger.Infof("TransportCredentials: %v", opts.TransportCredentials)
 	transportCreds := opts.TransportCredentials
 	perRPCCreds := opts.PerRPCCredentials
 
 	if b := opts.CredsBundle; b != nil {
+		logger.Infof("b: %v", b)
 		if t := b.TransportCredentials(); t != nil {
 			transportCreds = t
 		}
@@ -284,6 +288,7 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 		}
 	}
 	if transportCreds != nil {
+		logger.Infof("TransportCredentials: %v", transportCreds)
 		conn, authInfo, err = transportCreds.ClientHandshake(connectCtx, addr.ServerName, conn)
 		if err != nil {
 			return nil, connectionErrorf(isTemporary(err), err, "ClientHandshake(%s) failed: %v", addr.Addr, err)
@@ -512,7 +517,7 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 func (t *http2Client) connectionErrorf(temp bool, e error, format string, args ...any) connectionError {
 	return connectionError{
 		remoteAddr: t.address.Addr,
-		desc:       fmt.Sprintf(format, args...),
+		Desc:       fmt.Sprintf(format, args...),
 		temp:       temp,
 		err:        e,
 	}

@@ -359,7 +359,7 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 func (t *http2Server) connectionErrorf(temp bool, e error, format string, args ...any) connectionError {
 	return connectionError{
 		remoteAddr: t.conn.RemoteAddr().String(),
-		desc:       fmt.Sprintf(format, args...),
+		Desc:       fmt.Sprintf(format, args...),
 		temp:       temp,
 		err:        e,
 	}
@@ -1000,7 +1000,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 	if err := t.writeHeaderLocked(s); err != nil {
 		switch e := err.(type) {
 		case connectionError:
-			return status.Error(codes.Unavailable, e.desc)
+			return status.Error(codes.Unavailable, e.Desc)
 		default:
 			return status.Convert(err).Err()
 		}
