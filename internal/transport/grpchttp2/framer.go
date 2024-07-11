@@ -201,6 +201,8 @@ func (f *WindowUpdateFrame) Header() *FrameHeader {
 	return f.hdr
 }
 
+func (f *WindowUpdateFrame) Free() {}
+
 type ContinuationFrame struct {
 	hdr      *FrameHeader
 	free     func()

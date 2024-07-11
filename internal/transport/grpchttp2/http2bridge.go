@@ -13,13 +13,13 @@ const (
 	http2MaxFrameLen         = 16384
 )
 
-type HTTP2bridge struct {
+type HTTP2FramerBridge struct {
 	framer *http2.Framer
 	pool   grpc.SharedBufferPool
 }
 
-func NewHTTP2bridge(w io.Writer, r io.Reader, maxHeaderListSize uint32) *HTTP2bridge {
-	fr := &HTTP2bridge{
+func NewHTTP2FramerBridge(w io.Writer, r io.Reader, maxHeaderListSize uint32) *HTTP2FramerBridge {
+	fr := &HTTP2FramerBridge{
 		framer: http2.NewFramer(w, r),
 		pool:   grpc.NewSharedBufferPool(),
 	}
@@ -32,11 +32,11 @@ func NewHTTP2bridge(w io.Writer, r io.Reader, maxHeaderListSize uint32) *HTTP2br
 
 }
 
-func (fr *HTTP2bridge) SetMetaDecoder(d *hpack.Decoder) {
+func (fr *HTTP2FramerBridge) SetMetaDecoder(d *hpack.Decoder) {
 	fr.framer.ReadMetaHeaders = d
 }
 
-func (fr *HTTP2bridge) ReadFrame() (Frame, error) {
+func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 	f, err := fr.framer.ReadFrame()
 
 	if err != nil {
@@ -127,7 +127,7 @@ func (fr *HTTP2bridge) ReadFrame() (Frame, error) {
 	return nil, connError(ErrCodeProtocol)
 }
 
-func (fr *HTTP2bridge) adaptHeadersFrame(f http2.Frame) (Frame, error) {
+func (fr *HTTP2FramerBridge) adaptHeadersFrame(f http2.Frame) (Frame, error) {
 	hhdr := f.Header()
 	hdr := &FrameHeader{
 		Size:     hhdr.Length,
@@ -159,7 +159,7 @@ func (fr *HTTP2bridge) adaptHeadersFrame(f http2.Frame) (Frame, error) {
 	return nil, connError(ErrCodeProtocol)
 }
 
-func (fr *HTTP2bridge) WriteData(streamID uint32, endStream bool, data ...[]byte) error {
+func (fr *HTTP2FramerBridge) WriteData(streamID uint32, endStream bool, data ...[]byte) error {
 	var localBuf [http2MaxFrameLen]byte
 	off := 0
 
@@ -170,7 +170,7 @@ func (fr *HTTP2bridge) WriteData(streamID uint32, endStream bool, data ...[]byte
 	return fr.framer.WriteData(streamID, endStream, localBuf[:off])
 }
 
-func (fr *HTTP2bridge) WriteHeaders(streamID uint32, endStream, endHeaders bool, data ...[]byte) error {
+func (fr *HTTP2FramerBridge) WriteHeaders(streamID uint32, endStream, endHeaders bool, data ...[]byte) error {
 	var localBuf [http2MaxFrameLen]byte
 	off := 0
 
@@ -188,11 +188,11 @@ func (fr *HTTP2bridge) WriteHeaders(streamID uint32, endStream, endHeaders bool,
 	return fr.framer.WriteHeaders(p)
 }
 
-func (fr *HTTP2bridge) WriteRSTStream(streamID uint32, code ErrCode) error {
+func (fr *HTTP2FramerBridge) WriteRSTStream(streamID uint32, code ErrCode) error {
 	return fr.framer.WriteRSTStream(streamID, http2.ErrCode(code))
 }
 
-func (fr *HTTP2bridge) WriteSettings(settings ...Setting) error {
+func (fr *HTTP2FramerBridge) WriteSettings(settings ...Setting) error {
 	ss := make([]http2.Setting, 0, len(settings))
 	for _, s := range settings {
 		ss = append(ss, http2.Setting{
@@ -204,23 +204,23 @@ func (fr *HTTP2bridge) WriteSettings(settings ...Setting) error {
 	return fr.framer.WriteSettings(ss...)
 }
 
-func (fr *HTTP2bridge) WriteSettingsAck() error {
+func (fr *HTTP2FramerBridge) WriteSettingsAck() error {
 	return fr.framer.WriteSettingsAck()
 }
 
-func (fr *HTTP2bridge) WritePing(ack bool, data [8]byte) error {
+func (fr *HTTP2FramerBridge) WritePing(ack bool, data [8]byte) error {
 	return fr.framer.WritePing(ack, data)
 }
 
-func (fr *HTTP2bridge) WriteGoAway(maxStreamID uint32, code ErrCode, debugData []byte) error {
+func (fr *HTTP2FramerBridge) WriteGoAway(maxStreamID uint32, code ErrCode, debugData []byte) error {
 	return fr.framer.WriteGoAway(maxStreamID, http2.ErrCode(code), debugData)
 }
 
-func (fr *HTTP2bridge) WriteWindowUpdate(streamID, inc uint32) error {
+func (fr *HTTP2FramerBridge) WriteWindowUpdate(streamID, inc uint32) error {
 	return fr.framer.WriteWindowUpdate(streamID, inc)
 }
 
-func (fr *HTTP2bridge) WriteContinuation(streamID uint32, endHeaders bool, headerBlock ...[]byte) error {
+func (fr *HTTP2FramerBridge) WriteContinuation(streamID uint32, endHeaders bool, headerBlock ...[]byte) error {
 	var localBuf [http2MaxFrameLen]byte
 	off := 0
 
