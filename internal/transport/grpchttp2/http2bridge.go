@@ -29,7 +29,6 @@ func NewHTTP2FramerBridge(w io.Writer, r io.Reader, maxHeaderListSize uint32) *H
 	fr.SetMetaDecoder(hpack.NewDecoder(http2InitHeaderTableSize, nil))
 
 	return fr
-
 }
 
 func (fr *HTTP2FramerBridge) SetMetaDecoder(d *hpack.Decoder) {
@@ -65,7 +64,7 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 		}
 		return df, nil
 	case FrameTypeHeaders:
-		return fr.adaptHeadersFrame(f)
+		return fr.adaptHeadersFrame(f, hdr)
 	case FrameTypeRSTStream:
 		return &RSTStreamFrame{
 			hdr:  hdr,
@@ -127,15 +126,7 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 	return nil, connError(ErrCodeProtocol)
 }
 
-func (fr *HTTP2FramerBridge) adaptHeadersFrame(f http2.Frame) (Frame, error) {
-	hhdr := f.Header()
-	hdr := &FrameHeader{
-		Size:     hhdr.Length,
-		Type:     FrameTypeHeaders,
-		Flags:    Flag(hhdr.Flags),
-		StreamID: hhdr.StreamID,
-	}
-
+func (fr *HTTP2FramerBridge) adaptHeadersFrame(f http2.Frame, hdr *FrameHeader) (Frame, error) {
 	switch f.(type) {
 	case *http2.HeadersFrame:
 		buf := fr.pool.Get(int(hdr.Size))

@@ -19,7 +19,11 @@
 // Package grpchttp2 defines HTTP/2 types and a framer API and implementation.
 package grpchttp2
 
-import "golang.org/x/net/http2/hpack"
+import (
+	"io"
+
+	"golang.org/x/net/http2/hpack"
+)
 
 // FrameType represents the type of an HTTP/2 Frame.
 // See [Frame Type].
@@ -251,4 +255,207 @@ type Framer interface {
 	WriteGoAway(maxStreamID uint32, code ErrCode, debugData []byte) error
 	WriteWindowUpdate(streamID, inc uint32) error
 	WriteContinuation(streamID uint32, endHeaders bool, headerBlock ...[]byte) error
+}
+
+// framer implements the Framer interface.
+type framer struct {
+	metaDecoder *hpack.Decoder
+	hbuf        [9]byte
+	w           io.Writer
+	r           io.Reader
+}
+
+func NewFramer(w io.Writer, r io.Reader) Framer {
+	return &framer{
+		w: w,
+		r: r,
+	}
+}
+
+func (f *framer) writeHeader(size uint32, ft FrameType, flags Flag, streamID uint32) error {
+	if size >= 1<<24 {
+		return connError(ErrCodeFrameSize)
+	}
+
+	f.hbuf[0] = byte(size >> 16)
+	f.hbuf[1] = byte(size >> 8)
+	f.hbuf[2] = byte(size)
+	f.hbuf[3] = byte(ft)
+	f.hbuf[4] = byte(flags)
+	f.hbuf[5] = byte(streamID >> 24)
+	f.hbuf[6] = byte(streamID >> 16)
+	f.hbuf[7] = byte(streamID >> 8)
+	f.hbuf[8] = byte(streamID)
+
+	_, err := f.w.Write(f.hbuf[:])
+
+	return err
+}
+
+func (f *framer) readHeader() (*FrameHeader, error) {
+	_, err := io.ReadFull(f.r, f.hbuf[:])
+	if err != nil {
+		return nil, err
+	}
+
+	return &FrameHeader{
+		Size:     uint32(f.hbuf[0])<<16 | uint32(f.hbuf[1])<<8 | uint32(f.hbuf[2]),
+		Type:     FrameType(f.hbuf[3]),
+		Flags:    Flag(f.hbuf[4]),
+		StreamID: uint32(f.hbuf[5])<<24 | uint32(f.hbuf[6])<<16 | uint32(f.hbuf[7])<<8 | uint32(f.hbuf[8]),
+	}, nil
+}
+
+func (f *framer) writeUint32(v uint32) error {
+	_, err := f.w.Write([]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)})
+	return err
+}
+
+func (f *framer) writeUint16(v uint16) error {
+	_, err := f.w.Write([]byte{byte(v >> 8), byte(v)})
+	return err
+}
+
+func totalLen(d ...[]byte) int {
+	l := 0
+	for _, s := range d {
+		l += len(s)
+	}
+	return l
+}
+
+func (f *framer) SetMetaDecoder(d *hpack.Decoder) {
+	f.metaDecoder = d
+}
+
+func (f *framer) ReadFrame() (Frame, error)
+
+func (f *framer) WriteData(streamID uint32, endStream bool, data ...[]byte) error {
+	tl := totalLen(data...)
+
+	var flag Flag
+	if endStream {
+		flag |= FlagDataEndStream
+	}
+
+	if err := f.writeHeader(uint32(tl), FrameTypeData, flag, streamID); err != nil {
+		return err
+	}
+
+	for _, d := range data {
+		_, err := f.w.Write(d)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *framer) WriteHeaders(streamID uint32, endStream, endHeaders bool, headerBlock ...[]byte) error {
+	tl := totalLen(headerBlock...)
+
+	var flag Flag
+	if endStream {
+		flag |= FlagHeadersEndStream
+	}
+	if endHeaders {
+		flag |= FlagHeadersEndHeaders
+	}
+
+	if err := f.writeHeader(uint32(tl), FrameTypeHeaders, flag, streamID); err != nil {
+		return err
+	}
+
+	for _, h := range headerBlock {
+		_, err := f.w.Write(h)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *framer) WriteRSTStream(streamID uint32, code ErrCode) error {
+	if err := f.writeHeader(4, FrameTypeRSTStream, 0, streamID); err != nil {
+		return err
+	}
+	f.writeUint32(uint32(code))
+	return nil
+}
+
+func (f *framer) WriteSettings(settings ...Setting) error {
+	// Each setting is 6 bytes long.
+	tl := len(settings) * 6
+
+	f.writeHeader(uint32(tl), FrameTypeSettings, FlagSettingsAck, 0)
+
+	for _, s := range settings {
+		err := f.writeUint16(uint16(s.ID))
+		if err != nil {
+			return err
+		}
+		err = f.writeUint32(s.Value)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *framer) WriteSettingsAck() error {
+	return f.writeHeader(0, FrameTypeSettings, FlagSettingsAck, 0)
+}
+
+func (f *framer) WritePing(ack bool, data [8]byte) error {
+	var flag Flag
+	if ack {
+		flag |= FlagPingAck
+	}
+
+	return f.writeHeader(8, FrameTypePing, flag, 0)
+}
+
+func (f *framer) WriteGoAway(maxStreamID uint32, code ErrCode, debugData []byte) error {
+	// maxStreamID + code + debugData
+	tl := 4 + 4 + len(debugData)
+	err := f.writeHeader(uint32(tl), FrameTypeGoAway, 0, 0)
+	err = f.writeUint32(maxStreamID)
+	err = f.writeUint32(uint32(code))
+	_, err = f.w.Write(debugData)
+	return err
+}
+
+func (f *framer) WriteWindowUpdate(streamID, incr uint32) error {
+	err := f.writeHeader(4, FrameTypeWindowUpdate, 0, streamID)
+	if err != nil {
+		return err
+	}
+	err = f.writeUint32(incr)
+	return err
+}
+
+func (f *framer) WriteContinuation(streamID uint32, endHeaders bool, headerBlock ...[]byte) error {
+	tl := totalLen(headerBlock...)
+
+	var flag Flag
+	if endHeaders {
+		flag |= FlagHeadersEndHeaders
+	}
+
+	err := f.writeHeader(uint32(tl), FrameTypeContinuation, flag, streamID)
+	if err != nil {
+		return err
+	}
+
+	for _, hb := range headerBlock {
+		_, err := f.w.Write(hb)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
