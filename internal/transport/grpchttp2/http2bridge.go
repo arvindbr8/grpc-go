@@ -47,7 +47,7 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 	hdr := &FrameHeader{
 		Size:     hhdr.Length,
 		Type:     FrameType(hhdr.Type),
-		Flags:    Flags(hhdr.Flags),
+		Flags:    Flag(hhdr.Flags),
 		StreamID: hhdr.StreamID,
 	}
 
@@ -132,7 +132,7 @@ func (fr *HTTP2FramerBridge) adaptHeadersFrame(f http2.Frame) (Frame, error) {
 	hdr := &FrameHeader{
 		Size:     hhdr.Length,
 		Type:     FrameTypeHeaders,
-		Flags:    Flags(hhdr.Flags),
+		Flags:    Flag(hhdr.Flags),
 		StreamID: hhdr.StreamID,
 	}
 
