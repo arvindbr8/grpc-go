@@ -120,7 +120,7 @@ func (s) TestServerSideXDS_WithNoCertificateProvidersInBootstrap_Failure(t *test
 			}
 			select {
 			case nackCh <- struct{}{}:
-			case <-ctx.Done():
+			default:
 			}
 			return nil
 		},
@@ -134,7 +134,7 @@ func (s) TestServerSideXDS_WithNoCertificateProvidersInBootstrap_Failure(t *test
 			"server_uri": %q,
 			"channel_creds": [{"type": "insecure"}]
 		}`, mgmtServer.Address))},
-		NodeID:                             nodeID,
+		Node:                               []byte(fmt.Sprintf(`{"id": "%s"}`, nodeID)),
 		ServerListenerResourceNameTemplate: e2e.ServerListenerResourceNameTemplate,
 	})
 	if err != nil {
@@ -247,7 +247,7 @@ func (s) TestServerSideXDS_WithValidAndInvalidSecurityConfiguration(t *testing.T
 			}
 			select {
 			case nackCh <- struct{}{}:
-			case <-ctx.Done():
+			default:
 			}
 			return nil
 		},

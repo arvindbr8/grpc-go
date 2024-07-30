@@ -3,7 +3,7 @@
 set -ex         # Exit on error; debugging enabled.
 set -o pipefail # Fail a pipe if any sub-command fails.
 
-source "$(dirname $0)/vet-common.sh"
+source "$(dirname $0)/common.sh"
 
 # Check to make sure it's safe to modify the user's git repo.
 git status --porcelain | fail_on_output
@@ -90,7 +90,7 @@ for MOD_FILE in $(find . -name 'go.mod'); do
   go mod tidy -compat=1.21
   git status --porcelain 2>&1 | fail_on_output || \
     (git status; git --no-pager diff; exit 1)
-  
+
   # - Collection of static analysis checks
   SC_OUT="$(mktemp)"
   staticcheck -go 1.21 -checks 'all' ./... >"${SC_OUT}" || true
@@ -121,7 +121,7 @@ XXXXX PleaseIgnoreUnused'
 
   # Ignore a false positive when operands have side affectes.
   # TODO(https://github.com/dominikh/go-tools/issues/54): Remove this once the issue is fixed in staticcheck.
-  noret_grep "(SA4000)" "${SC_OUT}" | not grep -ev "crl.go:\d*:\d*: identical expressions on the left and right side of the '||' operator (SA4000)"
+  noret_grep "(SA4000)" "${SC_OUT}" | not grep -v -e "crl.go:[0-9]\+:[0-9]\+: identical expressions on the left and right side of the '||' operator (SA4000)"
 
   # Only ignore the following deprecated types/fields/functions and exclude
   # generated code.
