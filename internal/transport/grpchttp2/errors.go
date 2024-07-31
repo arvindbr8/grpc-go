@@ -76,3 +76,12 @@ type connError ErrCode
 func (err connError) Error() string {
 	return fmt.Sprintf("connection error: %s", ErrCode(err))
 }
+
+type streamError struct {
+	ErrCode
+	StreamID uint32
+}
+
+func (err streamError) Error() string {
+	return fmt.Sprintf("stream error from stream %d: %s", err.StreamID, err.ErrCode)
+}

@@ -126,7 +126,7 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 		gf := &GoAwayFrame{
 			hdr:          hdr,
 			DebugData:    buf,
-			Code:         ErrCode(f.ErrCode),
+			ErrCode:      ErrCode(f.ErrCode),
 			LastStreamID: f.LastStreamID,
 		}
 		gf.free = func() {

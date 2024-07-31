@@ -225,8 +225,8 @@ func (s) TestHTTP2Bridge_ReadFrame_GoAway(t *testing.T) {
 	if gf.LastStreamID != 2 {
 		t.Errorf("ReadFrame(): LastStreamID: got %d, want %d", gf.LastStreamID, 2)
 	}
-	if gf.Code != ErrCodeFlowControl {
-		t.Errorf("ReadFrame(): Code: got %#x, want %#x", gf.Code, ErrCodeFlowControl)
+	if gf.ErrCode != ErrCodeFlowControl {
+		t.Errorf("ReadFrame(): Code: got %#x, want %#x", gf.ErrCode, ErrCodeFlowControl)
 	}
 	if string(gf.DebugData) != d {
 		t.Errorf("ReadFrame(): DebugData: got %q, want %q", string(gf.DebugData), d)
