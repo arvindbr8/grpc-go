@@ -23,34 +23,38 @@ import (
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
-	"google.golang.org/grpc"
+	"google.golang.org/grpc/mem"
 )
 
-const (
-	initHeaderTableSize = 4096
-	maxFrameLen         = 16384
-)
-
-type HTTP2FramerBridge struct {
-	framer *http2.Framer
-	buf    [maxFrameLen]byte
-	pool   grpc.SharedBufferPool
+// FramerBridge is a struct that works as an adapter for the net/x/http2
+// Framer implementation to be able to work with the grpchttp2.Framer interface.
+// This type exists to give an opt-out feature for the new framer and it is
+// eventually going to be removed.
+type FramerBridge struct {
+	framer *http2.Framer  // the underlying http2.Framer implementation to perform reads and writes.
+	pool   mem.BufferPool // a pool to reuse buffers when reading.
 }
 
-func NewHTTP2FramerBridge(w io.Writer, r io.Reader, maxHeaderListSize uint32) *HTTP2FramerBridge {
-	fr := &HTTP2FramerBridge{
+// NewFramerBridge creates a new framer by taking a writer and a reader,
+// alongside the maxHeaderListSize for the maximum size of the headers table.
+// The underlying framer uses the SetReuseFrames feature to avoid extra
+// allocations.
+func NewFramerBridge(w io.Writer, r io.Reader, maxHeaderListSize uint32) *FramerBridge {
+	fr := &FramerBridge{
 		framer: http2.NewFramer(w, r),
-		pool:   grpc.NewSharedBufferPool(),
+		pool:   mem.DefaultBufferPool(),
 	}
 
 	fr.framer.SetReuseFrames()
 	fr.framer.MaxHeaderListSize = maxHeaderListSize
-	fr.framer.ReadMetaHeaders = (hpack.NewDecoder(initHeaderTableSize, nil))
+	fr.framer.ReadMetaHeaders = hpack.NewDecoder(initHeaderTableSize, nil)
 
 	return fr
 }
 
-func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
+// ReadFrame() reads a frame from the underlying http2.Framer and returns a
+// Frame defined in the grpchttp2 package.
+func (fr *FramerBridge) ReadFrame() (Frame, error) {
 	f, err := fr.framer.ReadFrame()
 	if err != nil {
 		return nil, err
@@ -66,29 +70,17 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 
 	switch f := f.(type) {
 	case *http2.DataFrame:
-		buf := fr.pool.Get(int(hdr.Size))
-		copy(buf, f.Data())
-		df := &DataFrame{
+		buf := mem.Copy(f.Data(), fr.pool)
+		return &DataFrame{
 			hdr:  hdr,
 			Data: buf,
-		}
-		df.free = func() {
-			fr.pool.Put(&buf)
-			df.Data = nil
-		}
-		return df, nil
+		}, nil
 	case *http2.HeadersFrame:
-		buf := fr.pool.Get(int(hdr.Size))
-		copy(buf, f.HeaderBlockFragment())
-		hf := &HeadersFrame{
+		buf := mem.Copy(f.HeaderBlockFragment(), fr.pool)
+		return &HeadersFrame{
 			hdr:      hdr,
 			HdrBlock: buf,
-		}
-		hf.free = func() {
-			fr.pool.Put(&buf)
-			hf.HdrBlock = nil
-		}
-		return hf, nil
+		}, nil
 	case *http2.RSTStreamFrame:
 		return &RSTStreamFrame{
 			hdr:  hdr,
@@ -103,45 +95,31 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 			})
 			return nil
 		})
-		sf := &SettingsFrame{
+		return &SettingsFrame{
 			hdr:      hdr,
 			Settings: buf,
-		}
-		return sf, nil
+		}, nil
 	case *http2.PingFrame:
-		buf := fr.pool.Get(int(hdr.Size))
-		copy(buf, f.Data[:])
-		pf := &PingFrame{
+		buf := mem.Copy(f.Data[:], fr.pool)
+		return &PingFrame{
 			hdr:  hdr,
 			Data: buf,
-		}
-		pf.free = func() {
-			fr.pool.Put(&buf)
-			pf.Data = nil
-		}
-		return pf, nil
+		}, nil
 	case *http2.GoAwayFrame:
-		buf := fr.pool.Get(int(hdr.Size - 8))
-		copy(buf, f.DebugData())
-		gf := &GoAwayFrame{
+		buf := mem.Copy(f.DebugData(), fr.pool)
+		return &GoAwayFrame{
 			hdr:          hdr,
-			DebugData:    buf,
-			ErrCode:      ErrCode(f.ErrCode),
 			LastStreamID: f.LastStreamID,
-		}
-		gf.free = func() {
-			fr.pool.Put(&buf)
-			gf.DebugData = nil
-		}
-		return gf, nil
+			Code:         ErrCode(f.ErrCode),
+			DebugData:    buf,
+		}, nil
 	case *http2.WindowUpdateFrame:
 		return &WindowUpdateFrame{
 			hdr: hdr,
 			Inc: f.Increment,
 		}, nil
 	case *http2.ContinuationFrame:
-		buf := fr.pool.Get(int(hdr.Size))
-		copy(buf, f.HeaderBlockFragment())
+		buf := mem.Copy(f.HeaderBlockFragment(), fr.pool)
 		return &ContinuationFrame{
 			hdr:      hdr,
 			HdrBlock: buf,
@@ -156,17 +134,16 @@ func (fr *HTTP2FramerBridge) ReadFrame() (Frame, error) {
 	return nil, connError(ErrCodeProtocol)
 }
 
-func (fr *HTTP2FramerBridge) WriteData(streamID uint32, endStream bool, data ...[]byte) error {
-	off := 0
+func (fr *FramerBridge) WriteData(streamID uint32, endStream bool, data mem.BufferSlice) error {
+	buf := data.MaterializeToBuffer(fr.pool)
+	err := fr.framer.WriteData(streamID, endStream, buf.ReadOnlyData())
 
-	for _, s := range data {
-		off += copy(fr.buf[off:], s)
-	}
-
-	return fr.framer.WriteData(streamID, endStream, fr.buf[:off])
+	data.Free()
+	buf.Free()
+	return err
 }
 
-func (fr *HTTP2FramerBridge) WriteHeaders(streamID uint32, endStream, endHeaders bool, headerBlock []byte) error {
+func (fr *FramerBridge) WriteHeaders(streamID uint32, endStream, endHeaders bool, headerBlock []byte) error {
 	p := http2.HeadersFrameParam{
 		StreamID:      streamID,
 		EndStream:     endStream,
@@ -177,11 +154,11 @@ func (fr *HTTP2FramerBridge) WriteHeaders(streamID uint32, endStream, endHeaders
 	return fr.framer.WriteHeaders(p)
 }
 
-func (fr *HTTP2FramerBridge) WriteRSTStream(streamID uint32, code ErrCode) error {
+func (fr *FramerBridge) WriteRSTStream(streamID uint32, code ErrCode) error {
 	return fr.framer.WriteRSTStream(streamID, http2.ErrCode(code))
 }
 
-func (fr *HTTP2FramerBridge) WriteSettings(settings ...Setting) error {
+func (fr *FramerBridge) WriteSettings(settings ...Setting) error {
 	ss := make([]http2.Setting, 0, len(settings))
 	for _, s := range settings {
 		ss = append(ss, http2.Setting{
@@ -193,22 +170,22 @@ func (fr *HTTP2FramerBridge) WriteSettings(settings ...Setting) error {
 	return fr.framer.WriteSettings(ss...)
 }
 
-func (fr *HTTP2FramerBridge) WriteSettingsAck() error {
+func (fr *FramerBridge) WriteSettingsAck() error {
 	return fr.framer.WriteSettingsAck()
 }
 
-func (fr *HTTP2FramerBridge) WritePing(ack bool, data [8]byte) error {
+func (fr *FramerBridge) WritePing(ack bool, data [8]byte) error {
 	return fr.framer.WritePing(ack, data)
 }
 
-func (fr *HTTP2FramerBridge) WriteGoAway(maxStreamID uint32, code ErrCode, debugData []byte) error {
+func (fr *FramerBridge) WriteGoAway(maxStreamID uint32, code ErrCode, debugData []byte) error {
 	return fr.framer.WriteGoAway(maxStreamID, http2.ErrCode(code), debugData)
 }
 
-func (fr *HTTP2FramerBridge) WriteWindowUpdate(streamID, inc uint32) error {
+func (fr *FramerBridge) WriteWindowUpdate(streamID, inc uint32) error {
 	return fr.framer.WriteWindowUpdate(streamID, inc)
 }
 
-func (fr *HTTP2FramerBridge) WriteContinuation(streamID uint32, endHeaders bool, headerBlock []byte) error {
+func (fr *FramerBridge) WriteContinuation(streamID uint32, endHeaders bool, headerBlock []byte) error {
 	return fr.framer.WriteContinuation(streamID, endHeaders, headerBlock)
 }
