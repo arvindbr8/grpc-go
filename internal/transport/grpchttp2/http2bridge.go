@@ -110,7 +110,7 @@ func (fr *FramerBridge) ReadFrame() (Frame, error) {
 		return &GoAwayFrame{
 			hdr:          hdr,
 			LastStreamID: f.LastStreamID,
-			Code:         ErrCode(f.ErrCode),
+			ErrCode:      ErrCode(f.ErrCode),
 			DebugData:    buf,
 		}, nil
 	case *http2.WindowUpdateFrame:

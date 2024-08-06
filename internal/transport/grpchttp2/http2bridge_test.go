@@ -305,7 +305,7 @@ func (s) TestHTTP2Bridge_ReadFrame_MetaHeaders(t *testing.T) {
 func (s) TestHTTP2Bridge_WriteData(t *testing.T) {
 	c := &testConn{}
 	wantData := "test data"
-	testBuf := mem.BufferSlice{mem.NewBuffer([]byte(wantData), nil)}
+	testBuf := mem.BufferSlice{mem.NewBuffer([]byte(wantData[:4]), nil), mem.NewBuffer([]byte(wantData[4:]), nil)}
 	f := NewFramerBridge(c, c, 0)
 	f.WriteData(1, false, testBuf)
 	if errs := checkWrittenHeader(c.wbuf[0:9], len(wantData), FrameTypeData, 0, 1); len(errs) > 0 {
