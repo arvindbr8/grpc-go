@@ -243,7 +243,7 @@ type GoAwayFrame struct {
 	hdr          *FrameHeader
 	free         func()
 	LastStreamID uint32
-	Code         ErrCode
+	ErrCode      ErrCode
 	DebugData    []byte
 }
 
@@ -366,11 +366,16 @@ type framer struct {
 }
 
 func NewFramer(w io.Writer, r io.Reader, maxHeaderListSize uint32) *framer {
+	hdrListSize := maxHeaderListSize
+	if hdrListSize == 0 {
+		hdrListSize = 16 << 20
+	}
 	return &framer{
 		w:                 w,
 		r:                 r,
 		dec:               hpack.NewDecoder(initHeaderTableSize, nil),
-		maxHeaderListSize: maxHeaderListSize,
+		maxHeaderListSize: hdrListSize,
+		pool:              mem.DefaultBufferPool(),
 	}
 }
 
@@ -384,9 +389,10 @@ func (f *framer) parseDataFrame(hdr *FrameHeader) (Frame, error) {
 		return nil, err
 	}
 
-	df := &DataFrame{hdr: hdr, Data: mem.NewBuffer(buf, func(buf []byte) {
+	df := &DataFrame{hdr: hdr, Data: buf}
+	df.free = func() {
 		f.pool.Put(buf)
-	})}
+	}
 	return df, nil
 }
 
@@ -399,9 +405,8 @@ func (f *framer) parseHeadersFrame(hdr *FrameHeader) (Frame, error) {
 	if _, err := io.ReadFull(f.r, buf); err != nil {
 		return nil, err
 	}
-	hf := &HeadersFrame{hdr: hdr, HdrBlock: mem.NewBuffer(buf, func(buf []byte) {
-		f.pool.Put(buf)
-	})}
+	hf := &HeadersFrame{hdr: hdr, HdrBlock: buf}
+	hf.free = func() { f.pool.Put(buf) }
 	return hf, nil
 }
 
@@ -457,9 +462,8 @@ func (f *framer) parsePingFrame(hdr *FrameHeader) (Frame, error) {
 		return nil, err
 	}
 
-	pf := &PingFrame{hdr: hdr, Data: mem.NewBuffer(buf, func(buf []byte) {
-		f.pool.Put(buf)
-	})}
+	pf := &PingFrame{hdr: hdr, Data: buf}
+	pf.free = func() { f.pool.Put(buf) }
 	return pf, nil
 }
 
@@ -482,17 +486,17 @@ func (f *framer) parseGoAwayFrame(hdr *FrameHeader) (Frame, error) {
 		return nil, err
 	}
 	gf := &GoAwayFrame{
+		hdr:          hdr,
 		LastStreamID: lastStream,
 		ErrCode:      ErrCode(code),
-		DebugData: mem.NewBuffer(buf, func(buf []byte) {
-			f.pool.Put(buf)
-		}),
+		DebugData:    buf,
 	}
+	gf.free = func() { f.pool.Put(buf) }
 
 	return gf, nil
 }
 
-func (f *framer) parseWriteWindowUpdate(hdr *FrameHeader) (Frame, error) {
+func (f *framer) parseWindowUpdate(hdr *FrameHeader) (Frame, error) {
 	inc, err := f.readUint32()
 	if err != nil {
 		return nil, err
@@ -521,11 +525,10 @@ func (f *framer) parseContinuationFrame(hdr *FrameHeader) (Frame, error) {
 		return nil, err
 	}
 	cf := &ContinuationFrame{
-		hdr: hdr,
-		HdrBlock: mem.NewBuffer(buf, func(buf []byte) {
-			f.pool.Put(buf)
-		}),
+		hdr:      hdr,
+		HdrBlock: buf,
 	}
+	cf.free = func() { f.pool.Put(buf) }
 	return cf, nil
 }
 
@@ -565,16 +568,18 @@ func (f *framer) readMetaHeaders(frame *HeadersFrame) (Frame, error) {
 			remainingSize = 0
 			return
 		}
+		remainingSize -= size
 		mh.Fields = append(mh.Fields, hf)
 	})
 
+	var currFr Frame = frame
 	frag := frame.HdrBlock
 	for {
-		if _, err := f.dec.Write(frag.ReadOnlyData()); err != nil {
+		if _, err := f.dec.Write(frag); err != nil {
 			return nil, connError(ErrCodeCompression)
 		}
 
-		if frame.Header().Flags.IsSet(FlagHeadersEndHeaders) {
+		if currFr.Header().Flags.IsSet(FlagHeadersEndHeaders) {
 			break
 		}
 
@@ -582,7 +587,9 @@ func (f *framer) readMetaHeaders(frame *HeadersFrame) (Frame, error) {
 		if err != nil {
 			return nil, err
 		}
-		frag.Free()
+
+		currFr.Free()
+		currFr = fr
 		frag = fr.(*ContinuationFrame).HdrBlock
 	}
 
@@ -633,7 +640,7 @@ func (f *framer) ReadFrame() (Frame, error) {
 	case FrameTypeGoAway:
 		fr, err = f.parseGoAwayFrame(hdr)
 	case FrameTypeWindowUpdate:
-		fr, err = f.parseWriteWindowUpdate(hdr)
+		fr, err = f.parseWindowUpdate(hdr)
 	case FrameTypeContinuation:
 		fr, err = f.parseContinuationFrame(hdr)
 	default:
@@ -643,6 +650,11 @@ func (f *framer) ReadFrame() (Frame, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if err := f.checkOrder(*hdr); err != nil {
+		return nil, err
+	}
+
 	if fr.Header().Type == FrameTypeHeaders {
 		fr, err = f.readMetaHeaders(fr.(*HeadersFrame))
 	}
