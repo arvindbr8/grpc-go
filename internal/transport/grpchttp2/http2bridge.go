@@ -60,6 +60,9 @@ func NewFramerBridge(w io.Writer, r io.Reader, maxHeaderListSize uint32, pool me
 func (fr *FramerBridge) ReadFrame() (Frame, error) {
 	f, err := fr.framer.ReadFrame()
 	if err != nil {
+		if se, ok := err.(http2.StreamError); ok {
+			return nil, StreamError{ErrCode: ErrCode(se.Code), StreamID: se.StreamID}
+		}
 		return nil, err
 	}
 
@@ -83,8 +86,8 @@ func (fr *FramerBridge) ReadFrame() (Frame, error) {
 		return df, nil
 	case *http2.RSTStreamFrame:
 		return &RSTStreamFrame{
-			hdr:  hdr,
-			Code: ErrCode(f.ErrCode),
+			hdr:     hdr,
+			ErrCode: ErrCode(f.ErrCode),
 		}, nil
 	case *http2.SettingsFrame:
 		buf := make([]Setting, 0, f.NumSettings())
@@ -127,8 +130,10 @@ func (fr *FramerBridge) ReadFrame() (Frame, error) {
 		}, nil
 	case *http2.MetaHeadersFrame:
 		return &MetaHeadersFrame{
-			hdr:    hdr,
-			Fields: f.Fields,
+			Hdr:         hdr,
+			Fields:      f.Fields,
+			Truncated:   f.Truncated,
+			StreamEnded: f.StreamEnded(),
 		}, nil
 	default:
 		buf := fr.pool.Get(int(hdr.Size))
@@ -215,4 +220,8 @@ func (fr *FramerBridge) WriteWindowUpdate(streamID, inc uint32) error {
 // WriteContinuation writes a Continuation Frame into the underlying writer.
 func (fr *FramerBridge) WriteContinuation(streamID uint32, endHeaders bool, headerBlock []byte) error {
 	return fr.framer.WriteContinuation(streamID, endHeaders, headerBlock)
+}
+
+func (fr *FramerBridge) ErrorDetail() error {
+	return fr.framer.ErrorDetail()
 }

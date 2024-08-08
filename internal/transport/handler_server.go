@@ -40,6 +40,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/internal/grpclog"
 	"google.golang.org/grpc/internal/grpcutil"
+	"google.golang.org/grpc/internal/transport/grpchttp2"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/stats"
@@ -477,8 +478,8 @@ func mapRecvMsgError(err error) error {
 	if err == io.EOF || err == io.ErrUnexpectedEOF {
 		return err
 	}
-	if se, ok := err.(http2.StreamError); ok {
-		if code, ok := http2ErrConvTab[se.Code]; ok {
+	if se, ok := err.(grpchttp2.StreamError); ok {
+		if code, ok := http2ErrConvTab[se.ErrCode]; ok {
 			return status.Error(code, se.Error())
 		}
 	}

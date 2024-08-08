@@ -14,7 +14,7 @@ func (s) TestFramer_ReadFrame_Data(t *testing.T) {
 	c.rbuf = appendUint32(c.rbuf, 1)
 	c.rbuf = append(c.rbuf, []byte(wantData)...)
 
-	fr := NewFramer(c, c, 0)
+	fr := NewFramer(c, c, 0, nil)
 
 	f, err := fr.ReadFrame()
 	if err != nil {
@@ -22,7 +22,13 @@ func (s) TestFramer_ReadFrame_Data(t *testing.T) {
 	}
 	defer f.Free()
 
-	if err := checkReadHeader(f.Header(), 9, FrameTypeData, 0, 1); err != nil {
+	wantHdr := wantHeader{
+		wantSize:      len(wantData),
+		wantFrameType: FrameTypeData,
+		wantFlag:      0,
+		wantStreamID:  1,
+	}
+	if err := checkReadHeader(f.Header(), wantHdr); err != nil {
 		t.Errorf("ReadFrame(): %v", err)
 	}
 }
@@ -33,7 +39,7 @@ func (s) TestFramer_ReadFrame_RSTStream(t *testing.T) {
 	c.rbuf = appendUint32(c.rbuf, 1)
 	c.rbuf = appendUint32(c.rbuf, uint32(ErrCodeProtocol))
 
-	fr := NewFramer(c, c, 0)
+	fr := NewFramer(c, c, 0, nil)
 
 	f, err := fr.ReadFrame()
 	if err != nil {
@@ -41,12 +47,18 @@ func (s) TestFramer_ReadFrame_RSTStream(t *testing.T) {
 	}
 	defer f.Free()
 
-	if err := checkReadHeader(f.Header(), 4, FrameTypeRSTStream, 0, 1); err != nil {
+	wantHdr := wantHeader{
+		wantSize:      4,
+		wantFrameType: FrameTypeRSTStream,
+		wantFlag:      0,
+		wantStreamID:  1,
+	}
+	if err := checkReadHeader(f.Header(), wantHdr); err != nil {
 		t.Errorf("ReadFrame(): %v", err)
 	}
 
-	if rf := f.(*RSTStreamFrame); rf.Code != ErrCodeProtocol {
-		t.Errorf("ReadFrame(): Code: got %#x, want %#x", rf.Code, ErrCodeProtocol)
+	if rf := f.(*RSTStreamFrame); rf.ErrCode != ErrCodeProtocol {
+		t.Errorf("ReadFrame(): Code: got %#x, want %#x", rf.ErrCode, ErrCodeProtocol)
 	}
 }
 
@@ -58,7 +70,7 @@ func (s) TestFramer_ReadFrame_Settings(t *testing.T) {
 	c.rbuf = append(c.rbuf, byte(s.ID>>8), byte(s.ID))
 	c.rbuf = appendUint32(c.rbuf, s.Value)
 
-	fr := NewFramer(c, c, 0)
+	fr := NewFramer(c, c, 0, nil)
 
 	f, err := fr.ReadFrame()
 	if err != nil {
@@ -66,7 +78,13 @@ func (s) TestFramer_ReadFrame_Settings(t *testing.T) {
 	}
 	defer f.Free()
 
-	if err := checkReadHeader(f.Header(), 6, FrameTypeSettings, 0, 0); err != nil {
+	wantHdr := wantHeader{
+		wantSize:      6,
+		wantFrameType: FrameTypeSettings,
+		wantFlag:      0,
+		wantStreamID:  0,
+	}
+	if err := checkReadHeader(f.Header(), wantHdr); err != nil {
 		t.Errorf("ReadFrame(): %v", err)
 	}
 
@@ -82,14 +100,20 @@ func (s) TestFramer_ReadFrame_Ping(t *testing.T) {
 	c.rbuf = appendUint32(c.rbuf, 0)
 	c.rbuf = append(c.rbuf, d...)
 
-	fr := NewFramer(c, c, 0)
+	fr := NewFramer(c, c, 0, nil)
 	f, err := fr.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame(): %v", err)
 	}
 	defer f.Free()
 
-	if err := checkReadHeader(f.Header(), 8, FrameTypePing, 0, 0); err != nil {
+	wantHdr := wantHeader{
+		wantSize:      8,
+		wantFrameType: FrameTypePing,
+		wantFlag:      0,
+		wantStreamID:  0,
+	}
+	if err := checkReadHeader(f.Header(), wantHdr); err != nil {
 		t.Errorf("ReadFrame(): %v", err)
 	}
 
@@ -111,7 +135,7 @@ func (s) TestFramer_ReadFrame_GoAway(t *testing.T) {
 	c.rbuf = appendUint32(c.rbuf, uint32(ErrCodeFlowControl))
 	c.rbuf = append(c.rbuf, []byte(d)...)
 
-	fr := NewFramer(c, c, 0)
+	fr := NewFramer(c, c, 0, nil)
 
 	f, err := fr.ReadFrame()
 	if err != nil {
@@ -119,7 +143,13 @@ func (s) TestFramer_ReadFrame_GoAway(t *testing.T) {
 	}
 	defer f.Free()
 
-	if err := checkReadHeader(f.Header(), ln, FrameTypeGoAway, 0, 0); err != nil {
+	wantHdr := wantHeader{
+		wantSize:      ln,
+		wantFrameType: FrameTypeGoAway,
+		wantFlag:      0,
+		wantStreamID:  0,
+	}
+	if err := checkReadHeader(f.Header(), wantHdr); err != nil {
 		t.Errorf("ReadFrame(): %v", err)
 	}
 	gf := f.(*GoAwayFrame)
@@ -140,7 +170,7 @@ func (s) TestFramer_ReadFrame_WindowUpdate(t *testing.T) {
 	c.rbuf = appendUint32(c.rbuf, 1)
 	c.rbuf = appendUint32(c.rbuf, 100)
 
-	fr := NewFramer(c, c, 0)
+	fr := NewFramer(c, c, 0, nil)
 
 	f, err := fr.ReadFrame()
 	if err != nil {
@@ -148,7 +178,13 @@ func (s) TestFramer_ReadFrame_WindowUpdate(t *testing.T) {
 	}
 	defer f.Free()
 
-	if err := checkReadHeader(f.Header(), 4, FrameTypeWindowUpdate, 0, 1); err != nil {
+	wantHdr := wantHeader{
+		wantSize:      4,
+		wantFrameType: FrameTypeWindowUpdate,
+		wantFlag:      0,
+		wantStreamID:  1,
+	}
+	if err := checkReadHeader(f.Header(), wantHdr); err != nil {
 		t.Errorf("ReadFrame(): %v", err)
 	}
 
@@ -183,7 +219,7 @@ func (s) TestFramer_ReadFrame_MetaHeaders(t *testing.T) {
 	// Copy data written by the encoder into the reading buf
 	c.rbuf = append(c.rbuf, half2...)
 
-	f := NewFramer(c, c, 0)
+	f := NewFramer(c, c, 0, nil)
 	fr, err := f.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame(): %v", err)

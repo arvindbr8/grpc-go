@@ -27,7 +27,10 @@ import (
 	"google.golang.org/grpc/mem"
 )
 
-const initHeaderTableSize = 4096 // Default HTTP/2 header table size.
+const (
+	initHeaderTableSize = 4096 // Default HTTP/2 header table size.
+	ClientPreface       = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+)
 
 // FrameType represents the type of an HTTP/2 Frame.
 // See [Frame Type].
@@ -179,8 +182,8 @@ func (f *HeadersFrame) Free() {
 //
 // [RST_STREAM Frame]: https://httpwg.org/specs/rfc7540.html#RST_STREAM
 type RSTStreamFrame struct {
-	hdr  *FrameHeader
-	Code ErrCode
+	hdr     *FrameHeader
+	ErrCode ErrCode
 }
 
 // Header returns the 9 byte HTTP/2 header for this frame.
@@ -305,16 +308,17 @@ func (f *ContinuationFrame) Free() {
 //
 // Since there is no underlying buffer in this Frame, Free() is a no-op.
 type MetaHeadersFrame struct {
-	hdr    *FrameHeader
+	Hdr    *FrameHeader
 	Fields []hpack.HeaderField
 	// Truncated indicates whether the MetaHeadersFrame has been truncated due
 	// to being longer than the MaxHeaderListSize.
-	Truncated bool
+	Truncated   bool
+	StreamEnded bool
 }
 
 // Header returns the 9 byte HTTP/2 header for this frame.
 func (f *MetaHeadersFrame) Header() *FrameHeader {
-	return f.hdr
+	return f.Hdr
 }
 
 // Free is a no-op for MetaHeadersFrame.
@@ -372,6 +376,8 @@ type Framer interface {
 	// TODO: Once the mem package gets merged, data will change type to
 	// mem.Buffer.
 	WriteContinuation(streamID uint32, endHeaders bool, headerBlock []byte) error
+	// Provides additional detail about the last error ocurred if available.
+	ErrorDetail() error
 }
 
 // framer implements the Framer interface.
@@ -383,18 +389,21 @@ type framer struct {
 	pool              mem.BufferPool
 	maxHeaderListSize uint32
 	lastHeaderStream  uint32
+	lastErr           error
 }
 
-func NewFramer(w io.Writer, r io.Reader, maxHeaderListSize uint32) *framer {
-	hdrListSize := maxHeaderListSize
-	if hdrListSize == 0 {
-		hdrListSize = 16 << 20
+func NewFramer(w io.Writer, r io.Reader, maxHeaderListSize uint32, pool mem.BufferPool) *framer {
+	if maxHeaderListSize == 0 {
+		maxHeaderListSize = 16 << 20
+	}
+	if pool == nil {
+		pool = mem.DefaultBufferPool()
 	}
 	return &framer{
 		w:                 w,
 		r:                 r,
 		dec:               hpack.NewDecoder(initHeaderTableSize, nil),
-		maxHeaderListSize: hdrListSize,
+		maxHeaderListSize: maxHeaderListSize,
 		pool:              mem.DefaultBufferPool(),
 	}
 }
@@ -441,7 +450,7 @@ func (f *framer) parseRSTStreamFrame(hdr *FrameHeader) (Frame, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RSTStreamFrame{hdr: hdr, Code: ErrCode(code)}, nil
+	return &RSTStreamFrame{hdr: hdr, ErrCode: ErrCode(code)}, nil
 }
 
 func (f *framer) parseSettingsFrame(hdr *FrameHeader) (Frame, error) {
@@ -526,7 +535,7 @@ func (f *framer) parseWindowUpdate(hdr *FrameHeader) (Frame, error) {
 		if hdr.StreamID == 0 {
 			return nil, connError(ErrCodeProtocol)
 		}
-		return nil, streamError{StreamID: hdr.StreamID, ErrCode: ErrCodeProtocol}
+		return nil, StreamError{StreamID: hdr.StreamID, ErrCode: ErrCodeProtocol}
 	}
 
 	return &WindowUpdateFrame{
@@ -576,7 +585,7 @@ func (f *framer) checkOrder(hdr FrameHeader) error {
 }
 
 func (f *framer) readMetaHeaders(frame *HeadersFrame) (Frame, error) {
-	mh := &MetaHeadersFrame{hdr: frame.Header()}
+	mh := &MetaHeadersFrame{Hdr: frame.Header()}
 
 	remainingSize := f.maxHeaderListSize
 	f.dec.SetEmitEnabled(true)
@@ -600,6 +609,7 @@ func (f *framer) readMetaHeaders(frame *HeadersFrame) (Frame, error) {
 		}
 
 		if currFr.Header().Flags.IsSet(FlagHeadersEndHeaders) {
+			mh.StreamEnded = currFr.Header().Flags.IsSet(FlagHeadersEndStream)
 			break
 		}
 
@@ -722,18 +732,23 @@ func (f *framer) writeUint16(v uint16) error {
 	return err
 }
 
-func (f *framer) WriteData(streamID uint32, endStream bool, data mem.BufferSlice) error {
+func (f *framer) WriteData(streamID uint32, endStream bool, data ...[]byte) error {
+	tl := 0
+	for _, s := range data {
+		tl += len(s)
+	}
+
 	var flag Flag
 	if endStream {
 		flag |= FlagDataEndStream
 	}
 
-	if err := f.writeHeader(uint32(data.Len()), FrameTypeData, flag, streamID); err != nil {
+	if err := f.writeHeader(uint32(tl), FrameTypeData, flag, streamID); err != nil {
 		return err
 	}
 
 	for _, buf := range data {
-		f.w.Write(buf.ReadOnlyData())
+		f.w.Write(buf)
 	}
 
 	return nil
@@ -830,4 +845,8 @@ func (f *framer) WriteContinuation(streamID uint32, endHeaders bool, headerBlock
 
 	_, err := f.w.Write(headerBlock)
 	return err
+}
+
+func (f *framer) ErrorDetail() error {
+	return f.lastErr
 }

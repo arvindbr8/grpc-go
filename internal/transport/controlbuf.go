@@ -28,10 +28,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 	"google.golang.org/grpc/internal/grpclog"
 	"google.golang.org/grpc/internal/grpcutil"
+	"google.golang.org/grpc/internal/transport/grpchttp2"
 	"google.golang.org/grpc/status"
 )
 
@@ -128,7 +128,7 @@ func (h *headerFrame) isTransportResponseFrame() bool {
 type cleanupStream struct {
 	streamID uint32
 	rst      bool
-	rstCode  http2.ErrCode
+	rstCode  grpchttp2.ErrCode
 	onWrite  func()
 }
 
@@ -173,13 +173,13 @@ func (*outgoingWindowUpdate) isTransportResponseFrame() bool {
 }
 
 type incomingSettings struct {
-	ss []http2.Setting
+	ss []grpchttp2.Setting
 }
 
 func (*incomingSettings) isTransportResponseFrame() bool { return true } // Results in a settings ACK
 
 type outgoingSettings struct {
-	ss []http2.Setting
+	ss []grpchttp2.Setting
 }
 
 func (*outgoingSettings) isTransportResponseFrame() bool { return false }
@@ -190,7 +190,7 @@ type incomingGoAway struct {
 func (*incomingGoAway) isTransportResponseFrame() bool { return false }
 
 type goAway struct {
-	code      http2.ErrCode
+	code      grpchttp2.ErrCode
 	debugData []byte
 	headsUp   bool
 	closeConn error // if set, loopyWriter will exit with this error
@@ -733,12 +733,7 @@ func (l *loopyWriter) writeHeader(streamID uint32, endStream bool, hf []hpack.He
 		}
 		if first {
 			first = false
-			err = l.framer.fr.WriteHeaders(http2.HeadersFrameParam{
-				StreamID:      streamID,
-				BlockFragment: l.hBuf.Next(size),
-				EndStream:     endStream,
-				EndHeaders:    endHeaders,
-			})
+			err = l.framer.fr.WriteHeaders(streamID, endStream, endHeaders, l.hBuf.Next(size))
 		} else {
 			err = l.framer.fr.WriteContinuation(
 				streamID,
@@ -819,7 +814,7 @@ func (l *loopyWriter) earlyAbortStreamHandler(eas *earlyAbortStream) error {
 		return err
 	}
 	if eas.rst {
-		if err := l.framer.fr.WriteRSTStream(eas.streamID, http2.ErrCodeNo); err != nil {
+		if err := l.framer.fr.WriteRSTStream(eas.streamID, grpchttp2.ErrCodeNoError); err != nil {
 			return err
 		}
 	}
@@ -887,12 +882,12 @@ func (l *loopyWriter) handle(i any) error {
 	return nil
 }
 
-func (l *loopyWriter) applySettings(ss []http2.Setting) {
+func (l *loopyWriter) applySettings(ss []grpchttp2.Setting) {
 	for _, s := range ss {
 		switch s.ID {
-		case http2.SettingInitialWindowSize:
+		case grpchttp2.SettingsInitialWindowSize:
 			o := l.oiws
-			l.oiws = s.Val
+			l.oiws = s.Value
 			if o < l.oiws {
 				// If the new limit is greater make all depleted streams active.
 				for _, stream := range l.estdStreams {
@@ -902,8 +897,8 @@ func (l *loopyWriter) applySettings(ss []http2.Setting) {
 					}
 				}
 			}
-		case http2.SettingHeaderTableSize:
-			updateHeaderTblSize(l.hEnc, s.Val)
+		case grpchttp2.SettingsHeaderTableSize:
+			updateHeaderTblSize(l.hEnc, s.Value)
 		}
 	}
 }
@@ -946,9 +941,7 @@ func (l *loopyWriter) processData() (bool, error) {
 		}
 		return false, nil
 	}
-	var (
-		buf []byte
-	)
+
 	// Figure out the maximum size we can send
 	maxSize := http2MaxFrameLen
 	if strQuota := int(l.oiws) - str.bytesOutStanding; strQuota <= 0 { // stream-level flow control.
@@ -963,21 +956,6 @@ func (l *loopyWriter) processData() (bool, error) {
 	// Compute how much of the header and data we can send within quota and max frame length
 	hSize := min(maxSize, len(dataItem.h))
 	dSize := min(maxSize-hSize, len(dataItem.d))
-	if hSize != 0 {
-		if dSize == 0 {
-			buf = dataItem.h
-		} else {
-			// We can add some data to grpc message header to distribute bytes more equally across frames.
-			// Copy on the stack to avoid generating garbage
-			var localBuf [http2MaxFrameLen]byte
-			copy(localBuf[:hSize], dataItem.h)
-			copy(localBuf[hSize:], dataItem.d[:dSize])
-			buf = localBuf[:hSize+dSize]
-		}
-	} else {
-		buf = dataItem.d
-	}
-
 	size := hSize + dSize
 
 	// Now that outgoing flow controls are checked we can replenish str's write quota
@@ -990,7 +968,7 @@ func (l *loopyWriter) processData() (bool, error) {
 	if dataItem.onEachWrite != nil {
 		dataItem.onEachWrite()
 	}
-	if err := l.framer.fr.WriteData(dataItem.streamID, endStream, buf[:size]); err != nil {
+	if err := l.framer.fr.WriteData(dataItem.streamID, endStream, dataItem.h[:hSize], dataItem.d[:dSize]); err != nil {
 		return false, err
 	}
 	str.bytesOutStanding += size

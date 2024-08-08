@@ -160,8 +160,8 @@ func (s) TestBridge_ReadFrame_RSTStream(t *testing.T) {
 		t.Errorf("ReadFrame():\n%s", errors.Join(errs...))
 	}
 	rf := fr.(*RSTStreamFrame)
-	if rf.Code != ErrCodeProtocol {
-		t.Errorf("ReadFrame(): Code: got %#x, want %#x", rf.Code, ErrCodeProtocol)
+	if rf.ErrCode != ErrCodeProtocol {
+		t.Errorf("ReadFrame(): Code: got %#x, want %#x", rf.ErrCode, ErrCodeProtocol)
 	}
 }
 
